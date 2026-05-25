@@ -40,6 +40,7 @@ const AdminPage = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<AdminTab>('employees');
   const [employees, setEmployees] = useState<EmployeeWithSettings[]>([]);
+  const [activeUsers, setActiveUsers] = useState<Map<string, string>>(new Map());
   const [timeEntries, setTimeEntries] = useState<(TimeEntry & { username?: string; email?: string })[]>([]);
   const [tasks, setTasks] = useState<(Task & { assigned_to_name?: string })[]>([]);
   const [loadingData, setLoadingData] = useState(false);
@@ -81,6 +82,16 @@ const AdminPage = () => {
       employee_settings: (settings || []).find(s => s.user_id === p.id) || null,
     }));
     setEmployees(merged);
+
+    // Fetch currently active/on-break employees
+    const { data: activeEntries } = await supabase
+      .from('time_entries')
+      .select('user_id, status')
+      .in('status', ['active', 'on_break']);
+    const statusMap = new Map<string, string>();
+    (activeEntries || []).forEach(e => statusMap.set(e.user_id, e.status));
+    setActiveUsers(statusMap);
+
     setLoadingData(false);
   }, []);
 
@@ -123,6 +134,21 @@ const AdminPage = () => {
     else if (activeTab === 'timerecords' || activeTab === 'payroll') fetchTimeEntries();
     else if (activeTab === 'tasks') { fetchTasks(); fetchEmployees(); }
   }, [activeTab, fetchEmployees, fetchTimeEntries, fetchTasks, loading, user]);
+
+  // Poll active status every 30s on employees tab
+  useEffect(() => {
+    if (activeTab !== 'employees' || loading || !user) return;
+    const interval = setInterval(async () => {
+      const { data: activeEntries } = await supabase
+        .from('time_entries')
+        .select('user_id, status')
+        .in('status', ['active', 'on_break']);
+      const statusMap = new Map<string, string>();
+      (activeEntries || []).forEach(e => statusMap.set(e.user_id, e.status));
+      setActiveUsers(statusMap);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [activeTab, loading, user]);
 
   useEffect(() => {
     if (activeTab === 'timerecords' || activeTab === 'payroll') fetchTimeEntries();
@@ -442,12 +468,35 @@ const AdminPage = () => {
                         <tr key={emp.id} className="hover:bg-muted/30 transition-colors">
                           <td className="px-5 py-3.5">
                             <div className="flex items-center gap-2.5">
-                              <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                                <span className="text-xs font-medium text-muted-foreground">
-                                  {emp.username?.charAt(0).toUpperCase()}
-                                </span>
+                              <div className="relative w-7 h-7 flex-shrink-0">
+                                <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center">
+                                  <span className="text-xs font-medium text-muted-foreground">
+                                    {emp.username?.charAt(0).toUpperCase()}
+                                  </span>
+                                </div>
+                                {activeUsers.has(emp.id) && (
+                                  <span
+                                    title={activeUsers.get(emp.id) === 'on_break' ? 'On break' : 'Clocked in'}
+                                    className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-background ${
+                                      activeUsers.get(emp.id) === 'on_break'
+                                        ? 'bg-amber-400'
+                                        : 'bg-green-500'
+                                    }`}
+                                  />
+                                )}
                               </div>
-                              <span className="text-sm font-medium">{emp.username}</span>
+                              <div>
+                                <span className="text-sm font-medium">{emp.username}</span>
+                                {activeUsers.has(emp.id) && (
+                                  <p className={`text-xs mt-0.5 ${
+                                    activeUsers.get(emp.id) === 'on_break'
+                                      ? 'text-amber-600'
+                                      : 'text-green-600'
+                                  }`}>
+                                    {activeUsers.get(emp.id) === 'on_break' ? 'On break' : 'Clocked in'}
+                                  </p>
+                                )}
+                              </div>
                             </div>
                           </td>
                           <td className="px-5 py-3.5 text-sm text-muted-foreground">{emp.email}</td>
