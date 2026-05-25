@@ -43,6 +43,10 @@ const LoginPage = () => {
           { user_id: user.id, hourly_wage: 0, is_admin: false },
           { onConflict: 'user_id' }
         );
+        await supabase.from('user_profiles').upsert(
+          { id: user.id, username, email: user.email || email },
+          { onConflict: 'id' }
+        );
         login(mapSupabaseUser(user));
         navigate('/');
       }

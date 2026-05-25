@@ -22,6 +22,18 @@ interface NewTaskForm {
   due_date: string;
 }
 
+const makeEmployeeEmail = (username: string) => {
+  const slug = username
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  const suffix = Math.random().toString(36).slice(2, 8);
+
+  return `${slug || 'employee'}-${Date.now()}-${suffix}@example.com`;
+};
+
 const AdminPage = () => {
   const { user, employeeSettings, loading, logout } = useAuth();
   const { theme } = useTheme();
@@ -54,8 +66,16 @@ const AdminPage = () => {
 
   const fetchEmployees = useCallback(async () => {
     setLoadingData(true);
-    const { data: profiles } = await supabase.from('user_profiles').select('*');
-    const { data: settings } = await supabase.from('employee_settings').select('*');
+    const { data: profiles, error: profilesError } = await supabase.from('user_profiles').select('*');
+    const { data: settings, error: settingsError } = await supabase.from('employee_settings').select('*');
+
+    if (profilesError || settingsError) {
+      console.error('Failed to fetch employees', { profilesError, settingsError });
+      setEmployees([]);
+      setLoadingData(false);
+      return;
+    }
+
     const merged: EmployeeWithSettings[] = (profiles || []).map(p => ({
       ...p,
       employee_settings: (settings || []).find(s => s.user_id === p.id) || null,
@@ -97,10 +117,12 @@ const AdminPage = () => {
   }, []);
 
   useEffect(() => {
+    if (loading || !user) return;
+
     if (activeTab === 'employees') fetchEmployees();
     else if (activeTab === 'timerecords' || activeTab === 'payroll') fetchTimeEntries();
     else if (activeTab === 'tasks') { fetchTasks(); fetchEmployees(); }
-  }, [activeTab, fetchEmployees, fetchTimeEntries, fetchTasks]);
+  }, [activeTab, fetchEmployees, fetchTimeEntries, fetchTasks, loading, user]);
 
   useEffect(() => {
     if (activeTab === 'timerecords' || activeTab === 'payroll') fetchTimeEntries();
@@ -120,6 +142,33 @@ const AdminPage = () => {
     fetchEmployees();
   };
 
+  const handleCreateTask = async () => {
+    if (!newTask.title || !newTask.assigned_to) {
+      toast.error('Task title and assignee are required');
+      return;
+    }
+
+    const { error } = await supabase.from('tasks').insert({
+      title: newTask.title,
+      description: newTask.description || null,
+      assigned_to: newTask.assigned_to,
+      assigned_by: user?.id || null,
+      priority: newTask.priority,
+      due_date: newTask.due_date || null,
+      status: 'pending',
+    });
+
+    if (error) {
+      toast.error('Failed to create task');
+      return;
+    }
+
+    toast.success('Task created');
+    setNewTask({ title: '', description: '', assigned_to: '', priority: 'medium', due_date: '' });
+    setShowNewTask(false);
+    fetchTasks();
+  };
+
   const handleToggleAdmin = async (emp: EmployeeWithSettings) => {
     const isAdmin = !emp.employee_settings?.is_admin;
     await supabase.from('employee_settings').upsert({
@@ -137,19 +186,27 @@ const AdminPage = () => {
       toast.error('Username and password are required');
       return;
     }
+
+    const generatedEmail = makeEmployeeEmail(newEmpUsername);
+
     try {
       // Create auth user
-      const { user: newUser, error: authError } = await supabase.auth.signUp({
-        email: `${newEmpUsername}@example.com`, // placeholder email
+      const { data, error: authError } = await supabase.auth.signUp({
+        email: generatedEmail,
         password: newEmpPassword,
-        options: { emailRedirectTo: '' }
       });
       if (authError) throw authError;
+
+      const newUser = data.user;
+      if (!newUser) {
+        throw new Error('Failed to create auth user');
+      }
+
       // Insert profile
       const { error: profileError } = await supabase.from('user_profiles').insert({
-        id: newUser!.id,
+        id: newUser.id,
         username: newEmpUsername,
-        email: `${newEmpUsername}@example.com`
+        email: generatedEmail,
       });
       if (profileError) throw profileError;
       // Insert employee settings
