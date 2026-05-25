@@ -220,6 +220,14 @@ const DashboardPage = () => {
             >
               Analytics
             </button>
+            {(user as any)?.is_admin && (
+              <button
+                onClick={() => navigate('/admin')}
+                className="px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Admin
+              </button>
+            )}
           </nav>
           <div className="flex items-center gap-4">
             <span className="text-muted-foreground text-xs font-mono hidden sm:block">
