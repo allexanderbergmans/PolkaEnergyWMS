@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTheme } from '@/contexts/ThemeContext';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { supabase } from '@/lib/supabase';
 import { authService } from '@/lib/auth';
 import { TimeEntry, Task, EmployeeWithSettings } from '@/types';
@@ -22,6 +24,7 @@ interface NewTaskForm {
 
 const AdminPage = () => {
   const { user, employeeSettings, loading, logout } = useAuth();
+  const { theme } = useTheme();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<AdminTab>('employees');
   const [employees, setEmployees] = useState<EmployeeWithSettings[]>([]);
@@ -31,6 +34,11 @@ const AdminPage = () => {
   const [showNewTask, setShowNewTask] = useState(false);
   const [editingWage, setEditingWage] = useState<string | null>(null);
   const [wageValue, setWageValue] = useState('');
+  // New employee form state
+  const [showNewEmployee, setShowNewEmployee] = useState(false);
+  const [newEmpUsername, setNewEmpUsername] = useState('');
+  const [newEmpPassword, setNewEmpPassword] = useState('');
+  const [newEmpIsAdmin, setNewEmpIsAdmin] = useState(false);
   const [newTask, setNewTask] = useState<NewTaskForm>({
     title: '', description: '', assigned_to: '', priority: 'medium', due_date: ''
   });
@@ -41,7 +49,7 @@ const AdminPage = () => {
 
   useEffect(() => {
     if (!loading && !user) { navigate('/login'); return; }
-    if (!loading && !employeeSettings?.is_admin) navigate('/dashboard');
+    if (!loading && employeeSettings !== null && !employeeSettings.is_admin) navigate('/dashboard');
   }, [user, employeeSettings, loading, navigate]);
 
   const fetchEmployees = useCallback(async () => {
@@ -123,22 +131,44 @@ const AdminPage = () => {
     fetchEmployees();
   };
 
-  const handleCreateTask = async () => {
-    if (!newTask.title || !newTask.assigned_to) { toast.error('Title and assignee are required'); return; }
-    const { error } = await supabase.from('tasks').insert({
-      title: newTask.title,
-      description: newTask.description || null,
-      assigned_to: newTask.assigned_to,
-      assigned_by: user?.id,
-      priority: newTask.priority,
-      due_date: newTask.due_date || null,
-      status: 'pending',
-    });
-    if (error) { toast.error('Failed to create task'); return; }
-    toast.success('Task created');
-    setShowNewTask(false);
-    setNewTask({ title: '', description: '', assigned_to: '', priority: 'medium', due_date: '' });
-    fetchTasks();
+  // Create a new employee without email verification
+  const handleCreateEmployee = async () => {
+    if (!newEmpUsername || !newEmpPassword) {
+      toast.error('Username and password are required');
+      return;
+    }
+    try {
+      // Create auth user
+      const { user: newUser, error: authError } = await supabase.auth.signUp({
+        email: `${newEmpUsername}@example.com`, // placeholder email
+        password: newEmpPassword,
+        options: { emailRedirectTo: '' }
+      });
+      if (authError) throw authError;
+      // Insert profile
+      const { error: profileError } = await supabase.from('user_profiles').insert({
+        id: newUser!.id,
+        username: newEmpUsername,
+        email: `${newEmpUsername}@example.com`
+      });
+      if (profileError) throw profileError;
+      // Insert employee settings
+      const { error: settingsError } = await supabase.from('employee_settings').upsert({
+        user_id: newUser!.id,
+        hourly_wage: 0,
+        is_admin: newEmpIsAdmin,
+      }, { onConflict: 'user_id' });
+      if (settingsError) throw settingsError;
+      toast.success('Employee created');
+      // Reset form
+      setNewEmpUsername('');
+      setNewEmpPassword('');
+      setNewEmpIsAdmin(false);
+      setShowNewEmployee(false);
+      fetchEmployees();
+    } catch (e) {
+      toast.error('Failed to create employee');
+    }
   };
 
   const handleDeleteTask = async (taskId: string) => {
@@ -231,6 +261,7 @@ const AdminPage = () => {
             <span className="text-xs text-muted-foreground ml-1 border border-border rounded px-1.5 py-0.5">Admin</span>
           </div>
           <div className="flex items-center gap-4">
+            <ThemeToggle />
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <User className="w-3.5 h-3.5" />
               <span className="hidden sm:block">{user?.username}</span>
@@ -276,97 +307,150 @@ const AdminPage = () => {
         </div>
 
         {/* EMPLOYEES */}
-        {activeTab === 'employees' && (
-          <div className="border border-border rounded-lg bg-card overflow-hidden">
-            <div className="px-5 py-4 border-b border-border">
-              <h2 className="font-semibold text-sm">Employee Management</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Set wages and admin access</p>
-            </div>
-            {loadingData ? (
-              <div className="flex justify-center p-12">
-                <div className="w-5 h-5 border-2 border-foreground border-t-transparent rounded-full animate-spin" />
+          {activeTab === 'employees' && (
+            <div className="border border-border rounded-lg bg-card overflow-hidden">
+              <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+                <div>
+                  <h2 className="font-semibold text-sm">Employee Management</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">Set wages, admin access and add new employees</p>
+                </div>
+                <button
+                  onClick={() => setShowNewEmployee(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-foreground text-background text-sm font-medium rounded-md hover:opacity-90 transition-opacity"
+                >
+                  Add Employee
+                </button>
               </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/40">
-                      {['Employee', 'Email', 'Hourly Wage', 'Role', ''].map(h => (
-                        <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {employees.map((emp) => (
-                      <tr key={emp.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                              <span className="text-xs font-medium text-muted-foreground">
-                                {emp.username?.charAt(0).toUpperCase()}
-                              </span>
-                            </div>
-                            <span className="text-sm font-medium">{emp.username}</span>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3.5 text-sm text-muted-foreground">{emp.email}</td>
-                        <td className="px-5 py-3.5">
-                          {editingWage === emp.id ? (
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-muted-foreground text-sm">$</span>
-                              <input
-                                type="number"
-                                value={wageValue}
-                                onChange={(e) => setWageValue(e.target.value)}
-                                className="w-20 bg-input border border-border rounded px-2 py-1 text-sm focus:outline-none focus:border-foreground"
-                                step="0.01" min="0" autoFocus
-                              />
-                              <button onClick={() => handleSaveWage(emp.id)} className="p-1 text-foreground hover:opacity-70 transition-opacity">
-                                <Save className="w-3.5 h-3.5" />
-                              </button>
-                              <button onClick={() => setEditingWage(null)} className="p-1 text-muted-foreground hover:text-foreground transition-colors">
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-sm">${(emp.employee_settings?.hourly_wage || 0).toFixed(2)}/hr</span>
-                              <button
-                                onClick={() => { setEditingWage(emp.id); setWageValue(String(emp.employee_settings?.hourly_wage || 0)); }}
-                                className="p-1 text-muted-foreground hover:text-foreground transition-colors"
-                              >
-                                <Edit2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <span className={`text-xs px-2 py-0.5 rounded-full border ${
-                            emp.employee_settings?.is_admin
-                              ? 'bg-foreground text-background border-foreground'
-                              : 'bg-transparent text-muted-foreground border-border'
-                          }`}>
-                            {emp.employee_settings?.is_admin ? 'Admin' : 'Employee'}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3.5">
-                          {emp.id !== user?.id && (
-                            <button
-                              onClick={() => handleToggleAdmin(emp)}
-                              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                            >
-                              {emp.employee_settings?.is_admin ? 'Remove admin' : 'Make admin'}
-                            </button>
-                          )}
-                        </td>
+              {showNewEmployee && (
+                <div className="p-5 border-b border-border">
+                  <h3 className="text-sm font-medium mb-4">Create New Employee</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-muted-foreground mb-1">Username</label>
+                      <input
+                        value={newEmpUsername}
+                        onChange={(e) => setNewEmpUsername(e.target.value)}
+                        placeholder="Username"
+                        className="w-full bg-input border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-foreground"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-muted-foreground mb-1">Password</label>
+                      <input
+                        type="password"
+                        value={newEmpPassword}
+                        onChange={(e) => setNewEmpPassword(e.target.value)}
+                        placeholder="Password"
+                        className="w-full bg-input border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-foreground"
+                      />
+                    </div>
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={newEmpIsAdmin}
+                        onChange={(e) => setNewEmpIsAdmin(e.target.checked)}
+                        className="mr-2"
+                      />
+                      <label className="text-xs text-muted-foreground">Admin</label>
+                    </div>
+                    <div className="flex justify-end gap-2 col-span-2">
+                      <button
+                        onClick={() => setShowNewEmployee(false)}
+                        className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      >Cancel</button>
+                      <button
+                        onClick={handleCreateEmployee}
+                        className="px-4 py-1.5 bg-foreground text-background text-sm font-medium rounded-md hover:opacity-90 transition-opacity"
+                      >Create</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {loadingData ? (
+                <div className="flex justify-center p-12">
+                  <div className="w-5 h-5 border-2 border-foreground border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40">
+                        {['Employee', 'Email', 'Hourly Wage', 'Role', ''].map(h => (
+                          <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground">{h}</th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {employees.map((emp) => (
+                        <tr key={emp.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="px-5 py-3.5">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                                <span className="text-xs font-medium text-muted-foreground">
+                                  {emp.username?.charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                              <span className="text-sm font-medium">{emp.username}</span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3.5 text-sm text-muted-foreground">{emp.email}</td>
+                          <td className="px-5 py-3.5">
+                            {editingWage === emp.id ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-muted-foreground text-sm">$</span>
+                                <input
+                                  type="number"
+                                  value={wageValue}
+                                  onChange={(e) => setWageValue(e.target.value)}
+                                  className="w-20 bg-input border border-border rounded px-2 py-1 text-sm focus:outline-none focus:border-foreground"
+                                  step="0.01" min="0" autoFocus
+                                />
+                                <button onClick={() => handleSaveWage(emp.id)} className="p-1 text-foreground hover:opacity-70 transition-opacity">
+                                  <Save className="w-3.5 h-3.5" />
+                                </button>
+                                <button onClick={() => setEditingWage(null)} className="p-1 text-muted-foreground hover:text-foreground transition-colors">
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-sm">${(emp.employee_settings?.hourly_wage || 0).toFixed(2)}/hr</span>
+                                <button
+                                  onClick={() => { setEditingWage(emp.id); setWageValue(String(emp.employee_settings?.hourly_wage || 0)); }}
+                                  className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className={`text-xs px-2 py-0.5 rounded-full border ${
+                              emp.employee_settings?.is_admin
+                                ? 'bg-foreground text-background border-foreground'
+                                : 'bg-transparent text-muted-foreground border-border'
+                            }`}>
+                              {emp.employee_settings?.is_admin ? 'Admin' : 'Employee'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            {emp.id !== user?.id && (
+                              <button
+                                onClick={() => handleToggleAdmin(emp)}
+                                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                {emp.employee_settings?.is_admin ? 'Remove admin' : 'Make admin'}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
 
         {/* TIME RECORDS */}
         {activeTab === 'timerecords' && (

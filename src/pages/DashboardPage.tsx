@@ -2,16 +2,19 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTheme } from '@/contexts/ThemeContext';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { supabase } from '@/lib/supabase';
 import { authService } from '@/lib/auth';
 import { TimeEntry, BreakEntry, Task } from '@/types';
 import {
   Zap, Clock, Coffee, LogOut, CheckSquare, Square,
-  Play, StopCircle, ChevronDown, ChevronUp, User
+  Play, StopCircle, ChevronDown, ChevronUp, User, BarChart3
 } from 'lucide-react';
 
 const DashboardPage = () => {
   const { user, employeeSettings, loading, logout } = useAuth();
+  const { theme } = useTheme();
   const navigate = useNavigate();
   const [activeEntry, setActiveEntry] = useState<TimeEntry | null>(null);
   const [activeBreak, setActiveBreak] = useState<BreakEntry | null>(null);
@@ -204,10 +207,25 @@ const DashboardPage = () => {
             </div>
             <span className="font-semibold text-sm">Polka Energy</span>
           </div>
+          <nav className="hidden md:flex items-center gap-1">
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="px-3 py-1.5 text-sm font-medium text-foreground"
+            >
+              Dashboard
+            </button>
+            <button
+              onClick={() => navigate('/analytics')}
+              className="px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Analytics
+            </button>
+          </nav>
           <div className="flex items-center gap-4">
             <span className="text-muted-foreground text-xs font-mono hidden sm:block">
               {currentTime.toLocaleTimeString()}
             </span>
+            <ThemeToggle />
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <User className="w-3.5 h-3.5" />
               <span className="hidden sm:block">{user?.username}</span>
