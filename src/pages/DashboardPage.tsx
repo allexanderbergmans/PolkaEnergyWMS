@@ -213,6 +213,7 @@ const DashboardPage = () => {
               className="px-3 py-1.5 text-sm font-medium text-foreground"
             >
               Dashboard
+              {/* for deployment */}
             </button>
             <button
               onClick={() => navigate('/analytics')}
