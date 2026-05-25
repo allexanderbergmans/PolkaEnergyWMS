@@ -29,9 +29,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setEmployeeSettings(data || null);
   };
 
-  const login = (authUser: AuthUser) => {
+  const syncProfile = async (authUser: AuthUser) => {
+    await supabase.from('user_profiles').upsert(
+      {
+        id: authUser.id,
+        username: authUser.username,
+        email: authUser.email,
+      },
+      { onConflict: 'id' }
+    );
+  };
+
+  const login = async (authUser: AuthUser) => {
     setUser(authUser);
-    fetchSettings(authUser.id);
+    await syncProfile(authUser);
+    await fetchSettings(authUser.id);
   };
 
   const logout = () => {
@@ -48,11 +60,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (mounted && session?.user) {
         const authUser = mapSupabaseUser(session.user);
         setUser(authUser);
-        fetchSettings(authUser.id);
+        await syncProfile(authUser);
+        await fetchSettings(authUser.id);
       }
       if (mounted) setLoading(false);
     });
@@ -64,13 +77,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (event === 'SIGNED_IN' && session?.user) {
         const authUser = mapSupabaseUser(session.user);
-        login(authUser);
+        void login(authUser);
         setLoading(false);
       } else if (event === 'SIGNED_OUT') {
         logout();
         setLoading(false);
       } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-        login(mapSupabaseUser(session.user));
+        void login(mapSupabaseUser(session.user));
       }
     });
 
