@@ -11,6 +11,9 @@ export interface EmployeeSettings {
   hourly_wage: number;
   is_admin: boolean;
   department?: string;
+  notes?: string;
+  start_date?: string;
+  contact_phone?: string;
   created_at: string;
   updated_at: string;
 }
@@ -63,6 +66,26 @@ export interface Task {
 export interface TaskWithNames extends Task {
   assigned_to_name?: string;
   assigned_by_name?: string;
+}
+
+export interface Announcement {
+  id: string;
+  title: string;
+  body?: string;
+  created_by?: string;
+  pinned: boolean;
+  created_at: string;
+}
+
+export interface Shift {
+  id: string;
+  user_id: string;
+  shift_date: string;
+  start_time: string;
+  end_time: string;
+  notes?: string;
+  created_by?: string;
+  created_at: string;
 }
 
 export interface PaycheckRecord {

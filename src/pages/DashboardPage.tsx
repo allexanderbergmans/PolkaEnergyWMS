@@ -6,10 +6,11 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { supabase } from '@/lib/supabase';
 import { authService } from '@/lib/auth';
-import { TimeEntry, BreakEntry, Task } from '@/types';
+import { TimeEntry, BreakEntry, Task, Announcement, Shift } from '@/types';
 import {
   Zap, Clock, Coffee, LogOut, CheckSquare, Square,
-  Play, StopCircle, ChevronDown, ChevronUp, User, BarChart3
+  Play, StopCircle, ChevronDown, ChevronUp, User, Megaphone,
+  CalendarDays, Pin
 } from 'lucide-react';
 
 const DashboardPage = () => {
@@ -20,6 +21,8 @@ const DashboardPage = () => {
   const [activeBreak, setActiveBreak] = useState<BreakEntry | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [upcomingShifts, setUpcomingShifts] = useState<Shift[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const [breakElapsed, setBreakElapsed] = useState(0);
   const [loadingAction, setLoadingAction] = useState(false);
@@ -77,11 +80,37 @@ const DashboardPage = () => {
     setTodayEntries(data || []);
   }, [user]);
 
+  const fetchAnnouncements = useCallback(async () => {
+    const { data } = await supabase
+      .from('announcements')
+      .select('*')
+      .order('pinned', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(5);
+    setAnnouncements(data || []);
+  }, []);
+
+  const fetchUpcomingShifts = useCallback(async () => {
+    if (!user) return;
+    const today = new Date().toISOString().split('T')[0];
+    const next7 = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const { data } = await supabase
+      .from('shifts')
+      .select('*')
+      .eq('user_id', user.id)
+      .gte('shift_date', today)
+      .lte('shift_date', next7)
+      .order('shift_date', { ascending: true });
+    setUpcomingShifts(data || []);
+  }, [user]);
+
   useEffect(() => {
     fetchActiveEntry();
     fetchTasks();
     fetchTodayEntries();
-  }, [fetchActiveEntry, fetchTasks, fetchTodayEntries]);
+    fetchAnnouncements();
+    fetchUpcomingShifts();
+  }, [fetchActiveEntry, fetchTasks, fetchTodayEntries, fetchAnnouncements, fetchUpcomingShifts]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -190,6 +219,21 @@ const DashboardPage = () => {
 
   const status = activeEntry?.status;
 
+  const fmtShiftTime = (t: string) => {
+    const [h, m] = t.split(':');
+    const d = new Date(); d.setHours(+h, +m);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const fmtShiftDate = (d: string) => {
+    const date = new Date(d + 'T00:00:00');
+    const today = new Date();
+    const tomorrow = new Date(); tomorrow.setDate(today.getDate() + 1);
+    if (d === today.toISOString().split('T')[0]) return 'Today';
+    if (d === tomorrow.toISOString().split('T')[0]) return 'Tomorrow';
+    return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-5 h-5 border-2 border-foreground border-t-transparent rounded-full animate-spin" />
@@ -213,7 +257,6 @@ const DashboardPage = () => {
               className="px-3 py-1.5 text-sm font-medium text-foreground"
             >
               Dashboard
-              {/* for deployment */}
             </button>
             <button
               onClick={() => navigate('/analytics')}
@@ -245,6 +288,33 @@ const DashboardPage = () => {
           </div>
         </div>
       </header>
+
+      {/* Announcements Banner */}
+      {announcements.length > 0 && (
+        <div className="border-b border-border bg-muted/40">
+          <div className="max-w-5xl mx-auto px-5 py-3 space-y-2">
+            {announcements.map(a => (
+              <div key={a.id} className="flex items-start gap-2.5">
+                {a.pinned
+                  ? <Pin className="w-3.5 h-3.5 text-foreground mt-0.5 flex-shrink-0" />
+                  : <Megaphone className="w-3.5 h-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
+                }
+                <div className="min-w-0">
+                  <span className={`text-sm font-medium ${a.pinned ? 'text-foreground' : 'text-muted-foreground'}`}>
+                    {a.title}
+                  </span>
+                  {a.body && (
+                    <span className="text-sm text-muted-foreground"> — {a.body}</span>
+                  )}
+                </div>
+                <span className="text-xs text-muted-foreground ml-auto flex-shrink-0">
+                  {new Date(a.created_at).toLocaleDateString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="max-w-5xl mx-auto px-5 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -348,6 +418,40 @@ const DashboardPage = () => {
                   <p className="text-xs text-muted-foreground mt-0.5">{s.label}</p>
                 </div>
               ))}
+            </div>
+
+            {/* Upcoming Shifts */}
+            <div className="border border-border rounded-lg bg-card overflow-hidden">
+              <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
+                <CalendarDays className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Upcoming Shifts</span>
+                {upcomingShifts.length > 0 && (
+                  <span className="ml-auto text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                    {upcomingShifts.length}
+                  </span>
+                )}
+              </div>
+              {upcomingShifts.length === 0 ? (
+                <div className="px-5 py-8 text-center">
+                  <p className="text-sm text-muted-foreground">No shifts scheduled this week</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {upcomingShifts.map((shift) => (
+                    <div key={shift.id} className="flex items-center justify-between px-5 py-3.5">
+                      <div>
+                        <p className="text-sm font-medium">{fmtShiftDate(shift.shift_date)}</p>
+                        {shift.notes && (
+                          <p className="text-xs text-muted-foreground mt-0.5">{shift.notes}</p>
+                        )}
+                      </div>
+                      <span className="text-sm font-mono text-muted-foreground">
+                        {fmtShiftTime(shift.start_time)} – {fmtShiftTime(shift.end_time)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* History */}
