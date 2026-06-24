@@ -10,7 +10,7 @@ import { TimeEntry, Task, EmployeeWithSettings, Announcement, Shift } from '@/ty
 import {
   Zap, Users, Clock, DollarSign, Download, LogOut,
   Plus, X, Check, User, Edit2, Save, Megaphone,
-  CalendarDays, Pin, ChevronDown, ChevronUp, FileText, Trash2
+  CalendarDays, Pin, ChevronDown, ChevronUp, FileText, Trash2, Printer
 } from 'lucide-react';
 
 type AdminTab = 'employees' | 'timerecords' | 'tasks' | 'payroll' | 'announcements' | 'schedule';
@@ -316,6 +316,97 @@ const AdminPage = () => {
     setNewShift({ user_id: '', shift_date: '', start_time: '09:00', end_time: '17:00', notes: '' });
     setShowNewShift(false);
     fetchShifts();
+  };
+
+  const handlePrintSchedule = () => {
+    const weekLabel = getWeekLabel();
+    const tableRows = shifts.map(shift => {
+      const [sh, sm] = shift.start_time.split(':').map(Number);
+      const [eh, em] = shift.end_time.split(':').map(Number);
+      const durationMins = (eh * 60 + em) - (sh * 60 + sm);
+      const duration = `${Math.floor(durationMins / 60)}h${durationMins % 60 > 0 ? ` ${durationMins % 60}m` : ''}`;
+      const today = new Date().toISOString().split('T')[0];
+      const rowBg = shift.shift_date === today ? 'background:#f0fdf4;' : '';
+      return `
+        <tr style="${rowBg}">
+          <td>${shift.username || 'Unknown'}</td>
+          <td>${new Date(shift.shift_date + 'T00:00:00').toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}${shift.shift_date === today ? ' <span style="color:#16a34a;font-size:10px;font-weight:600;">TODAY</span>' : ''}</td>
+          <td style="font-family:monospace;">${fmtShiftTime(shift.start_time)} – ${fmtShiftTime(shift.end_time)}</td>
+          <td>${duration}</td>
+          <td style="color:#666;">${shift.notes || '—'}</td>
+        </tr>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Polka Energy – Shift Schedule (${weekLabel})</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 12px; color: #111; padding: 32px; }
+    .header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 28px; border-bottom: 2px solid #111; padding-bottom: 16px; }
+    .logo { display: flex; align-items: center; gap: 8px; }
+    .logo-icon { width: 28px; height: 28px; background: #111; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+    .company { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+    .company-sub { font-size: 11px; color: #888; margin-top: 2px; }
+    .meta { text-align: right; }
+    .week-label { font-size: 14px; font-weight: 700; }
+    .week-dates { font-size: 10px; color: #888; margin-top: 3px; }
+    table { width: 100%; border-collapse: collapse; }
+    thead tr { background: #f5f5f5; }
+    th { text-align: left; padding: 9px 14px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #555; border-bottom: 1px solid #ddd; }
+    td { padding: 10px 14px; border-bottom: 1px solid #eee; font-size: 12px; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    .empty { text-align: center; padding: 48px; color: #aaa; font-size: 13px; }
+    .summary { margin-top: 20px; padding: 12px 14px; background: #f8f8f8; border-radius: 6px; display: flex; gap: 32px; }
+    .summary-item { display: flex; flex-direction: column; gap: 2px; }
+    .summary-val { font-size: 16px; font-weight: 700; }
+    .summary-key { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.4px; }
+    .footer { margin-top: 20px; font-size: 10px; color: #bbb; display: flex; justify-content: space-between; }
+    @media print { body { padding: 0; } @page { margin: 1.5cm; size: A4 landscape; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <div>
+        <div class="company">Polka Energy</div>
+        <div class="company-sub">Weekly Shift Schedule</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="week-label">${weekLabel}</div>
+      <div class="week-dates">Printed ${new Date().toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+    </div>
+  </div>
+  ${shifts.length === 0
+    ? '<div class="empty">No shifts scheduled for this period.</div>'
+    : `<table>
+    <thead><tr><th>Employee</th><th>Date</th><th>Time</th><th>Duration</th><th>Notes</th></tr></thead>
+    <tbody>${tableRows}</tbody>
+  </table>
+  <div class="summary">
+    <div class="summary-item"><span class="summary-val">${shifts.length}</span><span class="summary-key">Total shifts</span></div>
+    <div class="summary-item"><span class="summary-val">${[...new Set(shifts.map(s => s.user_id))].length}</span><span class="summary-key">Employees</span></div>
+    <div class="summary-item"><span class="summary-val">${shifts.reduce((acc, s) => { const [sh2,sm2]=s.start_time.split(':').map(Number); const [eh2,em2]=s.end_time.split(':').map(Number); return acc+(eh2*60+em2-sh2*60-sm2); }, 0) >= 60 ? (shifts.reduce((acc, s) => { const [sh2,sm2]=s.start_time.split(':').map(Number); const [eh2,em2]=s.end_time.split(':').map(Number); return acc+(eh2*60+em2-sh2*60-sm2); }, 0)/60).toFixed(1)+'h' : shifts.reduce((acc, s) => { const [sh2,sm2]=s.start_time.split(':').map(Number); const [eh2,em2]=s.end_time.split(':').map(Number); return acc+(eh2*60+em2-sh2*60-sm2); }, 0)+'m'}</span><span class="summary-key">Total hours</span></div>
+  </div>`
+  }
+  <div class="footer">
+    <span>Polka Energy — Confidential</span>
+    <span>Generated by Polka Energy Admin</span>
+  </div>
+</body>
+</html>`;
+
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      setTimeout(() => win.print(), 400);
+    } else {
+      toast.error('Pop-up blocked — please allow pop-ups for this site');
+    }
   };
 
   const handleDeleteShift = async (id: string) => {
@@ -945,6 +1036,14 @@ const AdminPage = () => {
                   <span className="px-3 py-1.5 text-sm font-medium border-x border-border">{getWeekLabel()}</span>
                   <button onClick={() => setScheduleWeekOffset(w => w + 1)} className="px-2.5 py-1.5 text-sm hover:bg-muted transition-colors">›</button>
                 </div>
+                <button
+                  onClick={handlePrintSchedule}
+                  title="Print / Export PDF"
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-border text-sm font-medium rounded-md hover:bg-muted transition-colors"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Print / PDF</span>
+                </button>
                 <button onClick={() => setShowNewShift(!showNewShift)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-foreground text-background text-sm font-medium rounded-md hover:opacity-90 transition-opacity">
                   {showNewShift ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
